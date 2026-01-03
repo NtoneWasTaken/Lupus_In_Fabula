@@ -214,21 +214,22 @@ function removePlayer(index) {
   updateTotals()
 }
 
-function updatePlayersList() {
+function updatePlayersList(players = gameState.players) {
   const playersList = document.getElementById("players-list")
   playersList.innerHTML = ""
 
-  if (gameState.players.length === 0) {
+  if (players.length === 0) {
     playersList.innerHTML =
       '<p style="color: var(--color-text-muted); padding: 1rem; text-align: center;">Nessun giocatore aggiunto</p>'
     return
   }
 
-  gameState.players.forEach((player, index) => {
+  players.forEach((player, index) => {
     const playerItem = document.createElement("div")
-    playerItem.className = "player-item"
+    playerItem.className = `player-item ${player.alive ? "" : "dead"}`
     playerItem.innerHTML = `
             <span>${player.name}</span>
+            ${player.alive ? "💚" : "💀"}
             <button class="btn-remove" onclick="removePlayer(${index})">Rimuovi</button>
         `
     playersList.appendChild(playerItem)
@@ -304,6 +305,23 @@ function changeRoleCountMultiplayer(roleKey, change) {
   currentCount = Math.max(0, currentCount + change)
   countElement.textContent = currentCount
   updateTotalsMultiplayer()
+
+  if (gameState.isHost && ws && ws.readyState === WebSocket.OPEN) {
+    const rolesConfig = {}
+    Object.keys(ROLES).forEach((key) => {
+      const count = Number.parseInt(document.getElementById(`count-mp-${key}`).textContent)
+      if (count > 0) {
+        rolesConfig[key] = count
+      }
+    })
+
+    ws.send(
+      JSON.stringify({
+        type: "update-roles",
+        rolesConfig: rolesConfig,
+      }),
+    )
+  }
 }
 
 function getRoleCount(roleKey) {
@@ -411,8 +429,25 @@ function startGame() {
 }
 
 function startMultiplayerGame() {
-  alert("La modalità multiplayer richiede un backend con Cloudflare Workers.\n\nPer ora usa la Modalità Locale!")
-  // In futuro qui ci sarà la logica per iniziare la partita multiplayer
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert("Connessione non attiva. Riprova.")
+    return
+  }
+
+  // Raccogli configurazione ruoli
+  const rolesConfig = {}
+  Object.keys(ROLES).forEach((roleKey) => {
+    const count = Number.parseInt(document.getElementById(`count-mp-${roleKey}`).textContent)
+    if (count > 0) {
+      rolesConfig[roleKey] = count
+    }
+  })
+
+  ws.send(
+    JSON.stringify({
+      type: "start-game",
+    }),
+  )
 }
 
 function getTotalRolesCount() {
@@ -720,6 +755,7 @@ function performWolvesAction() {
   showPlayerSelectionModal("Scegli la vittima dei lupi", (selectedPlayer) => {
     gameState.nightActions.wolvesTarget = selectedPlayer.name
     alert(`I lupi hanno scelto ${selectedPlayer.name}`)
+    sendNightAction({ type: "wolves-target", target: selectedPlayer.name })
   })
 }
 
@@ -727,6 +763,7 @@ function performSeerAction() {
   showPlayerSelectionModal("Scegli un giocatore di cui scoprire il ruolo", (selectedPlayer) => {
     const role = ROLES[selectedPlayer.role]
     alert(`${selectedPlayer.name} è: ${role.name} ${role.icon}`)
+    sendNightAction({ type: "seer-target", target: selectedPlayer.name })
   })
 }
 
@@ -734,6 +771,7 @@ function performGuardAction() {
   showPlayerSelectionModal("Scegli chi proteggere stanotte", (selectedPlayer) => {
     gameState.nightActions.guardTarget = selectedPlayer.name
     alert(`La guardia protegge ${selectedPlayer.name}`)
+    sendNightAction({ type: "guard-target", target: selectedPlayer.name })
   })
 }
 
@@ -760,11 +798,13 @@ function performWitchAction() {
     gameState.nightActions.witchSave = true
     gameState.nightActions.witchSaveUsed = true
     alert(`Hai salvato ${target}!`)
+    sendNightAction({ type: "witch-save", target: target })
   } else if (choice === "uccidi" && !gameState.nightActions.witchKillUsed) {
     showPlayerSelectionModal("Scegli chi uccidere con la pozione veleno", (selectedPlayer) => {
       gameState.nightActions.witchKill = selectedPlayer.name
       gameState.nightActions.witchKillUsed = true
       alert(`Hai avvelenato ${selectedPlayer.name}!`)
+      sendNightAction({ type: "witch-kill", target: selectedPlayer.name })
     })
   }
 }
@@ -785,6 +825,7 @@ function performCupidAction() {
         player1.lover = player2.name
         player2.lover = player1.name
         alert(`${player1.name} e ${player2.name} sono ora innamorati! 💘`)
+        sendNightAction({ type: "cupid-action", lovers: [player1.name, player2.name] })
       },
       [firstLover.name],
     )
@@ -1063,26 +1104,26 @@ document.getElementById("player-name-input").addEventListener("keypress", (e) =>
 
 // Multiplayer lobby functions
 function createRoom() {
-  // Genera un codice stanza casuale di 6 caratteri
-  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  let roomCode = ""
-  for (let i = 0; i < 6; i++) {
-    roomCode += characters.charAt(Math.floor(Math.random() * characters.length))
-  }
-
-  gameState.roomCode = roomCode
   gameState.isHost = true
   gameState.connectedPlayers = []
 
-  // Mostra schermata host
-  showMultiplayerHostScreen()
-
-  // Nota: In una vera implementazione multiplayer, qui ci sarebbe la chiamata
-  // al backend (Cloudflare Workers) per creare la stanza
-  console.log("[v0] Stanza creata (simulazione locale):", roomCode)
-  alert(
-    "Modalità Multiplayer richiede un backend.\n\nPer ora, usa la Modalità Locale che funziona completamente offline.\n\nSe vuoi il vero multiplayer, dovrai configurare Cloudflare Workers (ti posso aiutare dopo!).",
-  )
+  // Connetti al backend per creare la stanza
+  fetch("https://YOUR_WORKER_URL.workers.dev/api/create-room", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      gameState.roomCode = data.roomCode
+      showMultiplayerHostScreen()
+      connectWebSocket()
+    })
+    .catch((error) => {
+      console.error("[v0] Errore creazione stanza:", error)
+      alert("Errore nella creazione della stanza. Verifica che il backend sia configurato.")
+    })
 }
 
 function joinRoom() {
@@ -1105,30 +1146,179 @@ function joinRoom() {
   gameState.roomCode = roomCode
   gameState.isHost = false
 
-  // Mostra schermata giocatore in attesa
   showMultiplayerPlayerScreen()
+  connectWebSocket(playerName)
+}
 
-  // Nota: In una vera implementazione multiplayer, qui ci sarebbe la chiamata
-  // al backend per unirsi alla stanza
-  console.log("[v0] Tentativo di unirsi alla stanza (simulazione locale):", roomCode, "come", playerName)
-  alert(
-    "Modalità Multiplayer richiede un backend.\n\nPer ora, usa la Modalità Locale che funziona completamente offline.",
+let ws = null
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 5
+
+function connectWebSocket(playerName = null) {
+  const wsUrl = `wss://YOUR_WORKER_URL.workers.dev/api/room/${gameState.roomCode}`
+
+  console.log("[v0] Connessione a:", wsUrl)
+
+  ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => {
+    console.log("[v0] WebSocket connesso")
+    reconnectAttempts = 0
+
+    if (gameState.isHost) {
+      ws.send(
+        JSON.stringify({
+          type: "create-host",
+          playerName: "Host",
+        }),
+      )
+    } else if (playerName) {
+      ws.send(
+        JSON.stringify({
+          type: "join",
+          playerName: playerName,
+        }),
+      )
+    }
+  }
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    handleWebSocketMessage(data)
+  }
+
+  ws.onerror = (error) => {
+    console.error("[v0] WebSocket errore:", error)
+  }
+
+  ws.onclose = () => {
+    console.log("[v0] WebSocket chiuso")
+
+    // Tenta reconnessione
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectAttempts++
+      console.log(`[v0] Tentativo riconnessione ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`)
+      setTimeout(() => {
+        connectWebSocket(playerName)
+      }, 2000 * reconnectAttempts)
+    } else {
+      alert("Connessione persa. Ricarica la pagina per riconnetterti.")
+    }
+  }
+}
+
+function handleWebSocketMessage(data) {
+  console.log("[v0] Messaggio ricevuto:", data)
+
+  switch (data.type) {
+    case "connected":
+      console.log("[v0] Connesso al server")
+      break
+
+    case "player-joined":
+      if (gameState.isHost) {
+        gameState.connectedPlayers = data.players
+        updateConnectedPlayersList()
+        updateTotalsMultiplayer()
+      }
+      break
+
+    case "player-left":
+      if (gameState.isHost) {
+        gameState.connectedPlayers = data.players
+        updateConnectedPlayersList()
+        updateTotalsMultiplayer()
+      }
+      break
+
+    case "roles-updated":
+      // Aggiorna l'interfaccia con la nuova configurazione ruoli
+      Object.keys(data.rolesConfig).forEach((roleKey) => {
+        const element = document.getElementById(`count-mp-${roleKey}`)
+        if (element) {
+          element.textContent = data.rolesConfig[roleKey]
+        }
+      })
+      updateTotalsMultiplayer()
+      break
+
+    case "game-started":
+      // Il gioco è iniziato, mostra il ruolo al giocatore
+      const role = ROLES[data.yourRole]
+      alert(`Il tuo ruolo è: ${role.icon} ${role.name}\n\n${role.description}`)
+
+      // Nascondi schermata lobby, mostra game screen
+      hideAllScreens()
+      document.getElementById("game-screen").classList.add("active")
+
+      // Aggiorna lista giocatori
+      updatePlayersList(data.players)
+      break
+
+    case "phase-changed":
+      gameState.currentPhase = data.phase
+      if (data.phase === "night") {
+        gameState.currentNight = data.night
+        showNightPhase()
+      } else {
+        showDayPhase()
+      }
+      break
+
+    case "night-results":
+      showNightResults(data.deaths)
+      updatePlayersList(data.players)
+      break
+
+    case "day-results":
+      showDayResults(data.eliminated, data.votes)
+      updatePlayersList(data.players)
+      break
+
+    case "game-over":
+      showGameOver(data.winner, data.players)
+      break
+
+    case "error":
+      alert(data.message)
+      break
+  }
+}
+
+function sendNightAction(action) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert("Connessione non attiva")
+    return
+  }
+
+  ws.send(
+    JSON.stringify({
+      type: "night-action",
+      action: action,
+    }),
   )
 }
 
-function copyRoomCode() {
-  const roomCode = document.getElementById("room-code-display").textContent
-  navigator.clipboard.writeText(roomCode).then(() => {
-    const btn = document.querySelector(".btn-copy")
-    const originalText = btn.textContent
-    btn.textContent = "✓ Copiato!"
-    setTimeout(() => {
-      btn.textContent = originalText
-    }, 2000)
-  })
+function sendDayVote(target) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert("Connessione non attiva")
+    return
+  }
+
+  ws.send(
+    JSON.stringify({
+      type: "day-vote",
+      target: target,
+    }),
+  )
 }
 
 function leaveRoom() {
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+
   gameState.roomCode = null
   gameState.isHost = false
   gameState.connectedPlayers = []
@@ -1240,3 +1430,23 @@ function applyPresetMultiplayer(playerCount) {
 document.addEventListener("DOMContentLoaded", () => {
   showHomeScreen()
 })
+
+function showNightPhase() {
+  // Placeholder function for showNightPhase
+}
+
+function showDayPhase() {
+  // Placeholder function for showDayPhase
+}
+
+function showNightResults(deaths) {
+  // Placeholder function for showNightResults
+}
+
+function showDayResults(eliminated, votes) {
+  // Placeholder function for showDayResults
+}
+
+function showGameOver(winner, players) {
+  // Placeholder function for showGameOver
+}
