@@ -17,6 +17,11 @@ const gameState = {
     witchSaveUsed: false,
     witchKillUsed: false,
   },
+  // Nuovo: stato multiplayer
+  gameMode: null, // 'locale' o 'multiplayer'
+  roomCode: null,
+  isHost: false,
+  connectedPlayers: [],
 }
 
 // Role definitions
@@ -100,6 +105,32 @@ function initializeRolesConfig() {
   })
 }
 
+function initializeRolesConfigMultiplayer() {
+  const rolesConfig = document.getElementById("roles-config-multiplayer")
+  rolesConfig.innerHTML = ""
+
+  Object.keys(ROLES).forEach((roleKey) => {
+    const role = ROLES[roleKey]
+    const roleItem = document.createElement("div")
+    roleItem.className = "role-config-item"
+    roleItem.innerHTML = `
+            <div class="role-info">
+                <span class="role-emoji">${role.icon}</span>
+                <div class="role-details">
+                    <h4>${role.name}</h4>
+                    <p>${role.description.substring(0, 50)}...</p>
+                </div>
+            </div>
+            <div class="role-counter">
+                <button class="counter-btn" onclick="changeRoleCountMultiplayer('${roleKey}', -1)">−</button>
+                <span class="counter-value" id="count-mp-${roleKey}">0</span>
+                <button class="counter-btn" onclick="changeRoleCountMultiplayer('${roleKey}', 1)">+</button>
+            </div>
+        `
+    rolesConfig.appendChild(roleItem)
+  })
+}
+
 // Navigation functions
 function showHomeScreen() {
   hideAllScreens()
@@ -117,6 +148,25 @@ function showSetupScreen() {
 function showRulesScreen() {
   hideAllScreens()
   document.getElementById("rules-screen").classList.add("active")
+}
+
+function showMultiplayerLobby() {
+  hideAllScreens()
+  document.getElementById("multiplayer-lobby-screen").classList.add("active")
+}
+
+function showMultiplayerHostScreen() {
+  hideAllScreens()
+  document.getElementById("multiplayer-host-screen").classList.add("active")
+  document.getElementById("room-code-display").textContent = gameState.roomCode
+  updateConnectedPlayersList()
+  updateTotalsMultiplayer()
+}
+
+function showMultiplayerPlayerScreen() {
+  hideAllScreens()
+  document.getElementById("multiplayer-player-screen").classList.add("active")
+  document.getElementById("player-room-code").textContent = gameState.roomCode
 }
 
 function hideAllScreens() {
@@ -185,6 +235,60 @@ function updatePlayersList() {
   })
 }
 
+function addConnectedPlayer() {
+  const input = document.getElementById("player-name-lobby-input")
+  const name = input.value.trim()
+
+  if (name === "") {
+    alert("Inserisci un nome valido!")
+    return
+  }
+
+  if (gameState.connectedPlayers.some((p) => p.name === name)) {
+    alert("Questo nome è già stato usato!")
+    return
+  }
+
+  gameState.connectedPlayers.push({
+    name: name,
+    role: null,
+    alive: true,
+    protected: false,
+    lover: null,
+  })
+
+  input.value = ""
+  updateConnectedPlayersList()
+  updateTotalsMultiplayer()
+}
+
+function removeConnectedPlayer(index) {
+  gameState.connectedPlayers.splice(index, 1)
+  updateConnectedPlayersList()
+  updateTotalsMultiplayer()
+}
+
+function updateConnectedPlayersList() {
+  const list = document.getElementById("connected-players-list")
+  list.innerHTML = ""
+
+  if (gameState.connectedPlayers.length === 0) {
+    list.innerHTML =
+      '<p style="color: var(--color-text-muted); text-align: center; padding: 2rem;">Nessun giocatore connesso. Condividi il codice stanza!</p>'
+    return
+  }
+
+  gameState.connectedPlayers.forEach((player, index) => {
+    const playerItem = document.createElement("div")
+    playerItem.className = "player-item"
+    playerItem.innerHTML = `
+      <span>${player.name}</span>
+      <button class="btn-remove" onclick="removeConnectedPlayer(${index})">Rimuovi</button>
+    `
+    list.appendChild(playerItem)
+  })
+}
+
 // Role count management
 function changeRoleCount(roleKey, delta) {
   const countElement = document.getElementById(`count-${roleKey}`)
@@ -194,9 +298,28 @@ function changeRoleCount(roleKey, delta) {
   updateTotals()
 }
 
+function changeRoleCountMultiplayer(roleKey, change) {
+  const countElement = document.getElementById(`count-mp-${roleKey}`)
+  let currentCount = Number.parseInt(countElement.textContent)
+  currentCount = Math.max(0, currentCount + change)
+  countElement.textContent = currentCount
+  updateTotalsMultiplayer()
+}
+
 function getRoleCount(roleKey) {
   const countElement = document.getElementById(`count-${roleKey}`)
   return Number.parseInt(countElement.textContent)
+}
+
+function getTotalRolesCountMultiplayer() {
+  let total = 0
+  Object.keys(ROLES).forEach((roleKey) => {
+    const countElement = document.getElementById(`count-mp-${roleKey}`)
+    if (countElement) {
+      total += Number.parseInt(countElement.textContent)
+    }
+  })
+  return total
 }
 
 function updateTotals() {
@@ -229,6 +352,35 @@ function updateTotals() {
   }
 }
 
+function updateTotalsMultiplayer() {
+  const totalRoles = getTotalRolesCountMultiplayer()
+  const connectedCount = gameState.connectedPlayers.length
+
+  document.getElementById("total-players-multiplayer").textContent = connectedCount
+  document.getElementById("total-roles-multiplayer").textContent = totalRoles
+
+  const startBtn = document.getElementById("start-multiplayer-btn")
+  const diff = connectedCount - totalRoles
+
+  if (connectedCount === 0) {
+    startBtn.disabled = true
+    startBtn.textContent = "In attesa di giocatori..."
+  } else if (diff === 0 && connectedCount >= 4) {
+    startBtn.disabled = false
+    startBtn.textContent = "Inizia Partita"
+  } else if (diff !== 0) {
+    startBtn.disabled = true
+    if (diff > 0) {
+      startBtn.textContent = `Aggiungi ${diff} ruolo${diff > 1 ? "i" : ""}`
+    } else {
+      startBtn.textContent = `Rimuovi ${Math.abs(diff)} ruolo${Math.abs(diff) > 1 ? "i" : ""}`
+    }
+  } else if (connectedCount < 4) {
+    startBtn.disabled = true
+    startBtn.textContent = "Servono almeno 4 giocatori"
+  }
+}
+
 // Start game and assign roles
 function startGame() {
   if (gameState.players.length !== getTotalRolesCount()) {
@@ -256,6 +408,11 @@ function startGame() {
   // Start role assignment
   gameState.currentPlayerIndex = 0
   showRoleAssignmentScreen()
+}
+
+function startMultiplayerGame() {
+  alert("La modalità multiplayer richiede un backend con Cloudflare Workers.\n\nPer ora usa la Modalità Locale!")
+  // In futuro qui ci sarà la logica per iniziare la partita multiplayer
 }
 
 function getTotalRolesCount() {
@@ -904,11 +1061,92 @@ document.getElementById("player-name-input").addEventListener("keypress", (e) =>
   }
 })
 
-// Initialize on load
-document.addEventListener("DOMContentLoaded", () => {
-  showHomeScreen()
-})
+// Multiplayer lobby functions
+function createRoom() {
+  // Genera un codice stanza casuale di 6 caratteri
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  let roomCode = ""
+  for (let i = 0; i < 6; i++) {
+    roomCode += characters.charAt(Math.floor(Math.random() * characters.length))
+  }
 
+  gameState.roomCode = roomCode
+  gameState.isHost = true
+  gameState.connectedPlayers = []
+
+  // Mostra schermata host
+  showMultiplayerHostScreen()
+
+  // Nota: In una vera implementazione multiplayer, qui ci sarebbe la chiamata
+  // al backend (Cloudflare Workers) per creare la stanza
+  console.log("[v0] Stanza creata (simulazione locale):", roomCode)
+  alert(
+    "Modalità Multiplayer richiede un backend.\n\nPer ora, usa la Modalità Locale che funziona completamente offline.\n\nSe vuoi il vero multiplayer, dovrai configurare Cloudflare Workers (ti posso aiutare dopo!).",
+  )
+}
+
+function joinRoom() {
+  const roomCodeInput = document.getElementById("room-code-input")
+  const playerNameInput = document.getElementById("player-name-lobby-input")
+
+  const roomCode = roomCodeInput.value.trim().toUpperCase()
+  const playerName = playerNameInput.value.trim()
+
+  if (!roomCode) {
+    alert("Inserisci il codice della stanza!")
+    return
+  }
+
+  if (!playerName) {
+    alert("Inserisci il tuo nome!")
+    return
+  }
+
+  gameState.roomCode = roomCode
+  gameState.isHost = false
+
+  // Mostra schermata giocatore in attesa
+  showMultiplayerPlayerScreen()
+
+  // Nota: In una vera implementazione multiplayer, qui ci sarebbe la chiamata
+  // al backend per unirsi alla stanza
+  console.log("[v0] Tentativo di unirsi alla stanza (simulazione locale):", roomCode, "come", playerName)
+  alert(
+    "Modalità Multiplayer richiede un backend.\n\nPer ora, usa la Modalità Locale che funziona completamente offline.",
+  )
+}
+
+function copyRoomCode() {
+  const roomCode = document.getElementById("room-code-display").textContent
+  navigator.clipboard.writeText(roomCode).then(() => {
+    const btn = document.querySelector(".btn-copy")
+    const originalText = btn.textContent
+    btn.textContent = "✓ Copiato!"
+    setTimeout(() => {
+      btn.textContent = originalText
+    }, 2000)
+  })
+}
+
+function leaveRoom() {
+  gameState.roomCode = null
+  gameState.isHost = false
+  gameState.connectedPlayers = []
+  showHomeScreen()
+}
+
+// Game mode selection
+function selectGameMode(mode) {
+  gameState.gameMode = mode
+
+  if (mode === "locale") {
+    showSetupScreen()
+  } else if (mode === "multiplayer") {
+    showMultiplayerLobby()
+  }
+}
+
+// Preset functions
 function applyPreset(playerCount) {
   // Reset all roles
   Object.keys(ROLES).forEach((roleKey) => {
@@ -951,3 +1189,54 @@ function applyPreset(playerCount) {
 
   updateTotals()
 }
+
+function applyPresetMultiplayer(playerCount) {
+  // Reset all roles
+  Object.keys(ROLES).forEach((roleKey) => {
+    const element = document.getElementById(`count-mp-${roleKey}`)
+    if (element) {
+      element.textContent = "0"
+    }
+  })
+
+  // Apply preset based on player count
+  switch (playerCount) {
+    case 8:
+      document.getElementById("count-mp-lupo").textContent = "2"
+      document.getElementById("count-mp-contadino").textContent = "4"
+      document.getElementById("count-mp-veggente").textContent = "1"
+      document.getElementById("count-mp-guardia").textContent = "1"
+      break
+    case 10:
+      document.getElementById("count-mp-lupo").textContent = "2"
+      document.getElementById("count-mp-contadino").textContent = "5"
+      document.getElementById("count-mp-veggente").textContent = "1"
+      document.getElementById("count-mp-guardia").textContent = "1"
+      document.getElementById("count-mp-cupido").textContent = "1"
+      break
+    case 12:
+      document.getElementById("count-mp-lupo").textContent = "3"
+      document.getElementById("count-mp-contadino").textContent = "5"
+      document.getElementById("count-mp-veggente").textContent = "1"
+      document.getElementById("count-mp-guardia").textContent = "1"
+      document.getElementById("count-mp-strega").textContent = "1"
+      document.getElementById("count-mp-cacciatore").textContent = "1"
+      break
+    case 15:
+      document.getElementById("count-mp-lupo").textContent = "4"
+      document.getElementById("count-mp-contadino").textContent = "6"
+      document.getElementById("count-mp-veggente").textContent = "1"
+      document.getElementById("count-mp-guardia").textContent = "1"
+      document.getElementById("count-mp-strega").textContent = "1"
+      document.getElementById("count-mp-cupido").textContent = "1"
+      document.getElementById("count-mp-cacciatore").textContent = "1"
+      break
+  }
+
+  updateTotalsMultiplayer()
+}
+
+// Initialize on load
+document.addEventListener("DOMContentLoaded", () => {
+  showHomeScreen()
+})

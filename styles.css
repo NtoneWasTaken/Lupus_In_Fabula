@@ -726,3 +726,181 @@ body {
     padding: 0.5rem 0.75rem;
   }
 }
+
+/* Aggiunto stili per modalità multiplayer */
+.multiplayer-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1rem 0;
+}
+
+.multiplayer-section {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+}
+
+.multiplayer-section h3 {
+  font-size: 1.5rem;
+  color: var(--color-accent-light);
+  margin-bottom: 1rem;
+}
+
+.info-text {
+  color: var(--color-text-muted);
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.divider-or {
+  text-align: center;
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.divider-or::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.divider-or span {
+  background: var(--color-darker);
+  padding: 0 1rem;
+  position: relative;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+}
+
+.room-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.room-input-group input {
+  padding: 0.875rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--color-text);
+  font-family: "Georgia", serif;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.room-input-group input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.room-info-card {
+  background: rgba(139, 69, 19, 0.2);
+  border: 2px solid var(--color-accent);
+  padding: 2rem;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.room-info-card h3 {
+  font-size: 1.3rem;
+  color: var(--color-accent-light);
+  margin-bottom: 1rem;
+}
+
+.room-code-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.room-code-display span {
+  font-size: 2.5rem;
+  font-weight: bold;
+  letter-spacing: 0.3em;
+  color: var(--color-accent-light);
+  font-family: "Courier New", monospace;
+}
+
+.btn-copy {
+  background: var(--color-accent);
+  border: none;
+  color: var(--color-text);
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  font-family: "Georgia", serif;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+}
+
+.btn-copy:hover {
+  background: var(--color-accent-light);
+  transform: translateY(-2px);
+}
+
+.waiting-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid var(--color-accent);
+  padding: 3rem 2rem;
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.waiting-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+.waiting-card h3 {
+  font-size: 1.8rem;
+  margin-bottom: 1rem;
+  color: var(--color-accent-light);
+}
+
+.room-code-text {
+  font-size: 1.2rem;
+  margin: 1rem 0;
+}
+
+.room-code-text strong {
+  color: var(--color-accent-light);
+  font-family: "Courier New", monospace;
+  letter-spacing: 0.2em;
+}
+
+/* Aggiunto responsive per multiplayer */
+@media (max-width: 768px) {
+  .room-code-display {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .room-code-display span {
+    font-size: 2rem;
+  }
+
+  .multiplayer-section {
+    padding: 1.5rem;
+  }
+}
