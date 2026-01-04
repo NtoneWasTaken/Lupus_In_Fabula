@@ -78,6 +78,9 @@ const ROLES = {
   },
 }
 
+// CONFIGURA QUI L'URL DEL TUO WORKER (dopo il deploy con wrangler)
+const WORKER_URL = "https://lupus-in-tabula.antonioserratore004.workers.dev"
+
 // Initialize roles configuration
 function initializeRolesConfig() {
   const rolesConfig = document.getElementById("roles-config")
@@ -1103,27 +1106,21 @@ document.getElementById("player-name-input").addEventListener("keypress", (e) =>
 })
 
 // Multiplayer lobby functions
-function createRoom() {
-  gameState.isHost = true
-  gameState.connectedPlayers = []
+async function createRoom() {
+  try {
+    const response = await fetch(`${WORKER_URL}/api/create-room`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
 
-  // Connetti al backend per creare la stanza
-  fetch("https://YOUR_WORKER_URL.workers.dev/api/create-room", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  })
-    .then((res) => res.json())
-    .then((data) => {
-      gameState.roomCode = data.roomCode
-      showMultiplayerHostScreen()
-      connectWebSocket()
-    })
-    .catch((error) => {
-      console.error("[v0] Errore creazione stanza:", error)
-      alert("Errore nella creazione della stanza. Verifica che il backend sia configurato.")
-    })
+    const data = await response.json()
+    gameState.roomCode = data.roomCode
+    showMultiplayerHostScreen()
+    connectWebSocket()
+  } catch (error) {
+    console.error("[v0] Errore creazione stanza:", error)
+    alert("Errore nella creazione della stanza. Verifica che il backend sia configurato.")
+  }
 }
 
 function joinRoom() {
@@ -1155,7 +1152,7 @@ let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 
 function connectWebSocket(playerName = null) {
-  const wsUrl = `wss://YOUR_WORKER_URL.workers.dev/api/room/${gameState.roomCode}`
+  const wsUrl = `${WORKER_URL.replace("https://", "wss://")}/api/room/${gameState.roomCode}`
 
   console.log("[v0] Connessione a:", wsUrl)
 

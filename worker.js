@@ -1,6 +1,5 @@
 // Cloudflare Worker per gestire il multiplayer di Lupus in Tabula
 
-import { WebSocketPair } from "@cloudflare/workers"
 
 export default {
   async fetch(request, env) {
