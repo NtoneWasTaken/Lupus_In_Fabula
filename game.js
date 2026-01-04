@@ -459,12 +459,36 @@ function startMultiplayerGame() {
     }
   })
 
+  // Controlla che il numero di ruoli corrisponda al numero di giocatori
+  const totalRoles = Object.values(rolesConfig).reduce((sum, count) => sum + count, 0)
+  if (totalRoles !== gameState.connectedPlayers.length) {
+    alert(
+      `Il numero di ruoli (${totalRoles}) deve essere uguale al numero di giocatori (${gameState.connectedPlayers.length})!`,
+    )
+    return
+  }
+
+  if (gameState.connectedPlayers.length < 4) {
+    alert("Servono almeno 4 giocatori per iniziare!")
+    return
+  }
+
+  // Invia prima l'aggiornamento dei ruoli, poi il comando di avvio
   ws.send(
     JSON.stringify({
-      type: "start-game",
-      // rolesConfig: rolesConfig // Non è più necessario inviare qui, ma dal WebSocket
+      type: "update-roles",
+      rolesConfig: rolesConfig,
     }),
   )
+
+  // Piccolo delay per assicurare che l'aggiornamento ruoli arrivi prima
+  setTimeout(() => {
+    ws.send(
+      JSON.stringify({
+        type: "start-game",
+      }),
+    )
+  }, 100)
 }
 
 function getTotalRolesCount() {
