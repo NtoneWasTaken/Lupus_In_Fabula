@@ -1,5 +1,6 @@
 // Cloudflare Worker per gestire il multiplayer di Lupus in Tabula
 
+import { WebSocketPair } from "@cloudflare/workers"
 
 export default {
   async fetch(request, env) {
@@ -66,9 +67,8 @@ export class GameRoom {
       gameStarted: false,
       currentPhase: null,
       currentNight: 0,
-      currentRoleIndex: 0,
       nightActions: {},
-      eliminated: [],
+      lastDeaths: [],
     }
   }
 
@@ -248,7 +248,6 @@ export class GameRoom {
         this.gameState.currentPhase = "night"
         this.gameState.currentNight = 1
 
-        // Invia a ogni giocatore il proprio ruolo in privato
         this.sessions.forEach((session) => {
           const player = this.gameState.players.find((p) => p.name === session.playerName)
           if (player) {
@@ -256,9 +255,13 @@ export class GameRoom {
               JSON.stringify({
                 type: "game-started",
                 yourRole: player.role,
+                playerName: player.name,
+                phase: "night",
+                turnNumber: 1,
                 players: this.gameState.players.map((p) => ({
                   name: p.name,
                   alive: p.alive,
+                  lover: p.lover,
                 })),
               }),
             )
@@ -267,8 +270,32 @@ export class GameRoom {
         break
 
       case "night-action":
-        // Gestisce le azioni notturne
-        this.gameState.nightActions[session.playerName] = data.action
+        const player = this.gameState.players.find((p) => p.name === session.playerName)
+        if (!player) return
+
+        const action = data.action
+
+        // Memorizza l'azione
+        if (!this.gameState.nightActions[this.gameState.currentNight]) {
+          this.gameState.nightActions[this.gameState.currentNight] = {}
+        }
+
+        this.gameState.nightActions[this.gameState.currentNight][session.playerName] = action
+
+        if (action.type === "seer-target") {
+          const targetPlayer = this.gameState.players.find((p) => p.name === action.target)
+          if (targetPlayer) {
+            session.webSocket.send(
+              JSON.stringify({
+                type: "action-result",
+                result: {
+                  target: targetPlayer.name,
+                  role: targetPlayer.role,
+                },
+              }),
+            )
+          }
+        }
 
         this.broadcast(
           {
@@ -277,21 +304,14 @@ export class GameRoom {
           },
           session,
         )
-
-        // Controlla se tutti hanno agito
-        const activeRoles = this.getActiveNightRoles()
-        const allActionsReceived = activeRoles.every((role) => {
-          const player = this.gameState.players.find((p) => p.role === role && p.alive)
-          return !player || this.gameState.nightActions[player.name]
-        })
-
-        if (allActionsReceived) {
-          this.processNightActions()
-        }
         break
 
       case "day-vote":
-        this.gameState.nightActions[session.playerName] = {
+        if (!this.gameState.nightActions[this.gameState.currentNight]) {
+          this.gameState.nightActions[this.gameState.currentNight] = {}
+        }
+
+        this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
           type: "vote",
           target: data.target,
         }
@@ -303,30 +323,41 @@ export class GameRoom {
           },
           session,
         )
-
-        // Controlla se tutti hanno votato
-        const alivePlayers = this.gameState.players.filter((p) => p.alive)
-        const allVoted = alivePlayers.every((p) => this.gameState.nightActions[p.name])
-
-        if (allVoted) {
-          this.processDayVotes()
-        }
         break
 
       case "next-phase":
         if (!session.isHost) return
-        this.nextPhase()
+
+        if (this.gameState.currentPhase === "night") {
+          this.processNightActions()
+          this.gameState.currentPhase = "day"
+        } else {
+          this.processDayVotes()
+          this.gameState.currentPhase = "night"
+          this.gameState.currentNight++
+        }
+
+        const deaths = this.gameState.lastDeaths || []
+        this.broadcast({
+          type: "phase-changed",
+          phase: this.gameState.currentPhase,
+          turnNumber: this.gameState.currentNight,
+          deaths: deaths,
+          players: this.gameState.players.map((p) => ({
+            name: p.name,
+            alive: p.alive,
+            lover: p.lover,
+          })),
+        })
+
+        // Reset deaths dopo averle inviate
+        this.gameState.lastDeaths = []
         break
     }
   }
 
-  getActiveNightRoles() {
-    const roles = ["cupido", "lupo", "veggente", "guardia", "strega"]
-    return roles.filter((role) => this.gameState.players.some((p) => p.role === role && p.alive))
-  }
-
   processNightActions() {
-    const actions = this.gameState.nightActions
+    const actions = this.gameState.nightActions[this.gameState.currentNight] || {}
     let victim = null
     let protectedPlayer = null
     let savedByPotion = false
@@ -336,16 +367,16 @@ export class GameRoom {
     Object.entries(actions).forEach(([playerName, action]) => {
       const player = this.gameState.players.find((p) => p.name === playerName)
 
-      if (action.type === "wolves-kill") {
+      if (action.type === "wolves-target") {
         victim = action.target
-      } else if (action.type === "guard-protect") {
+      } else if (action.type === "guard-target") {
         protectedPlayer = action.target
-      } else if (action.type === "witch-save" && action.target) {
+      } else if (action.type === "witch-save") {
         savedByPotion = true
-      } else if (action.type === "witch-kill" && action.target) {
+      } else if (action.type === "witch-kill") {
         killedByPotion = action.target
-      } else if (action.type === "cupid-pair") {
-        const [lover1, lover2] = action.targets
+      } else if (action.type === "cupid-action") {
+        const [lover1, lover2] = action.lovers
         const p1 = this.gameState.players.find((p) => p.name === lover1)
         const p2 = this.gameState.players.find((p) => p.name === lover2)
         if (p1 && p2) {
@@ -360,7 +391,7 @@ export class GameRoom {
     // Determina chi muore
     if (victim && victim !== protectedPlayer && !savedByPotion) {
       const victimPlayer = this.gameState.players.find((p) => p.name === victim)
-      if (victimPlayer) {
+      if (victimPlayer && victimPlayer.alive) {
         victimPlayer.alive = false
         deaths.push(victim)
 
@@ -377,33 +408,32 @@ export class GameRoom {
 
     if (killedByPotion) {
       const poisonedPlayer = this.gameState.players.find((p) => p.name === killedByPotion)
-      if (poisonedPlayer) {
+      if (poisonedPlayer && poisonedPlayer.alive) {
         poisonedPlayer.alive = false
         deaths.push(killedByPotion)
+
+        // Se muore un innamorato, muore anche l'altro
+        if (poisonedPlayer.lover) {
+          const lover = this.gameState.players.find((p) => p.name === poisonedPlayer.lover)
+          if (lover && lover.alive) {
+            lover.alive = false
+            deaths.push(lover.name)
+          }
+        }
       }
     }
 
-    // Reset azioni
-    this.gameState.nightActions = {}
-
-    // Invia risultati
-    this.broadcast({
-      type: "night-results",
-      deaths: deaths,
-      players: this.gameState.players.map((p) => ({
-        name: p.name,
-        alive: p.alive,
-      })),
-    })
+    this.gameState.lastDeaths = deaths
 
     // Controlla vittoria
     this.checkVictory()
   }
 
   processDayVotes() {
+    const actions = this.gameState.nightActions[this.gameState.currentNight] || {}
     const votes = {}
 
-    Object.values(this.gameState.nightActions).forEach((action) => {
+    Object.values(actions).forEach((action) => {
       if (action.type === "vote" && action.target) {
         votes[action.target] = (votes[action.target] || 0) + 1
       }
@@ -434,8 +464,6 @@ export class GameRoom {
       }
     }
 
-    this.gameState.nightActions = {}
-
     this.broadcast({
       type: "day-results",
       eliminated: eliminated,
@@ -443,6 +471,7 @@ export class GameRoom {
       players: this.gameState.players.map((p) => ({
         name: p.name,
         alive: p.alive,
+        lover: p.lover,
       })),
     })
 
@@ -457,31 +486,16 @@ export class GameRoom {
     if (aliveWolves.length === 0) {
       this.broadcast({
         type: "game-over",
-        winner: "villagers",
+        winner: "Villaggio",
         players: this.gameState.players,
       })
     } else if (aliveWolves.length >= aliveVillagers.length) {
       this.broadcast({
         type: "game-over",
-        winner: "wolves",
+        winner: "Lupi",
         players: this.gameState.players,
       })
     }
-  }
-
-  nextPhase() {
-    if (this.gameState.currentPhase === "night") {
-      this.gameState.currentPhase = "day"
-    } else {
-      this.gameState.currentPhase = "night"
-      this.gameState.currentNight++
-    }
-
-    this.broadcast({
-      type: "phase-changed",
-      phase: this.gameState.currentPhase,
-      night: this.gameState.currentNight,
-    })
   }
 
   broadcast(message, except = null) {

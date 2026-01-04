@@ -934,3 +934,31 @@ body {
   font-weight: bold;
   color: var(--color-accent-light);
 }
+
+/* Aggiunto stili per azioni dei giocatori */
+.your-action-card {
+  background: rgba(139, 69, 19, 0.2);
+  border: 2px solid var(--color-accent);
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.your-action-card .action-header {
+  margin-bottom: 1rem;
+}
+
+.your-action-card p {
+  color: var(--color-text-muted);
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.narrative-text {
+  font-size: 1.2rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 1rem 0;
+  line-height: 1.8;
+}
