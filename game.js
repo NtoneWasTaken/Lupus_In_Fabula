@@ -80,7 +80,7 @@ const ROLES = {
 }
 
 // CONFIGURA QUI L'URL DEL TUO WORKER (dopo il deploy con wrangler)
-const WORKER_URL = "https://lupus-in-tabula.YOUR-ACCOUNT.workers.dev"
+const WORKER_URL = "https://lupus-in-tabula.antonioserratore004.workers.dev"
 
 // Initialize roles configuration
 function initializeRolesConfig() {
