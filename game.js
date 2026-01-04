@@ -22,6 +22,7 @@ const gameState = {
   roomCode: null,
   isHost: false,
   connectedPlayers: [],
+  rolesConfig: {}, // Salvare la configurazione localmente
 }
 
 // Role definitions
@@ -79,7 +80,7 @@ const ROLES = {
 }
 
 // CONFIGURA QUI L'URL DEL TUO WORKER (dopo il deploy con wrangler)
-const WORKER_URL = "https://lupus-in-tabula.antonioserratore004.workers.dev"
+const WORKER_URL = "https://lupus-in-tabula.YOUR-ACCOUNT.workers.dev"
 
 // Initialize roles configuration
 function initializeRolesConfig() {
@@ -125,9 +126,9 @@ function initializeRolesConfigMultiplayer() {
                 </div>
             </div>
             <div class="role-counter">
-                <button class="counter-btn" onclick="changeRoleCountMultiplayer('${roleKey}', -1)">−</button>
+                <button class="counter-btn" onclick="updateRoleCountMultiplayer('${roleKey}', -1)">−</button>
                 <span class="counter-value" id="count-mp-${roleKey}">0</span>
-                <button class="counter-btn" onclick="changeRoleCountMultiplayer('${roleKey}', 1)">+</button>
+                <button class="counter-btn" onclick="updateRoleCountMultiplayer('${roleKey}', 1)">+</button>
             </div>
         `
     rolesConfig.appendChild(roleItem)
@@ -162,14 +163,18 @@ function showMultiplayerHostScreen() {
   hideAllScreens()
   document.getElementById("multiplayer-host-screen").classList.add("active")
   document.getElementById("room-code-display").textContent = gameState.roomCode
+
+  initializeRolesConfigMultiplayer()
   updateConnectedPlayersList()
   updateTotalsMultiplayer()
+  updateRolesDisplayForPlayers() // Aggiunto per mostrare i ruoli nell'host screen
 }
 
 function showMultiplayerPlayerScreen() {
   hideAllScreens()
   document.getElementById("multiplayer-player-screen").classList.add("active")
   document.getElementById("player-room-code").textContent = gameState.roomCode
+  updateLobbyPlayersList() // Aggiorna la lista giocatori nella schermata player
 }
 
 function hideAllScreens() {
@@ -287,10 +292,17 @@ function updateConnectedPlayersList() {
     playerItem.className = "player-item"
     playerItem.innerHTML = `
       <span>${player.name}</span>
-      <button class="btn-remove" onclick="removeConnectedPlayer(${index})">Rimuovi</button>
+      ${gameState.isHost ? `<button class="btn-remove" onclick="removeConnectedPlayer(${index})">Rimuovi</button>` : ""}
     `
     list.appendChild(playerItem)
   })
+
+  const countElement = document.getElementById("connected-players-count")
+  if (countElement) {
+    countElement.textContent = gameState.connectedPlayers.length
+  }
+
+  updateLobbyPlayersList()
 }
 
 // Role count management
@@ -302,26 +314,25 @@ function changeRoleCount(roleKey, delta) {
   updateTotals()
 }
 
-function changeRoleCountMultiplayer(roleKey, change) {
-  const countElement = document.getElementById(`count-mp-${roleKey}`)
-  let currentCount = Number.parseInt(countElement.textContent)
-  currentCount = Math.max(0, currentCount + change)
-  countElement.textContent = currentCount
+function updateRoleCountMultiplayer(role, change) {
+  if (!gameState.isHost) {
+    alert("Solo l'host può modificare i ruoli!")
+    return
+  }
+
+  const currentCount = gameState.rolesConfig[role] || 0
+  const newCount = Math.max(0, currentCount + change)
+
+  gameState.rolesConfig[role] = newCount
+  document.getElementById(`count-mp-${role}`).textContent = newCount
   updateTotalsMultiplayer()
 
-  if (gameState.isHost && ws && ws.readyState === WebSocket.OPEN) {
-    const rolesConfig = {}
-    Object.keys(ROLES).forEach((key) => {
-      const count = Number.parseInt(document.getElementById(`count-mp-${key}`).textContent)
-      if (count > 0) {
-        rolesConfig[key] = count
-      }
-    })
-
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log("[v0] Invio update-roles:", gameState.rolesConfig)
     ws.send(
       JSON.stringify({
         type: "update-roles",
-        rolesConfig: rolesConfig,
+        rolesConfig: gameState.rolesConfig,
       }),
     )
   }
@@ -449,6 +460,7 @@ function startMultiplayerGame() {
   ws.send(
     JSON.stringify({
       type: "start-game",
+      // rolesConfig: rolesConfig // Non è più necessario inviare qui, ma dal WebSocket
     }),
   )
 }
@@ -1043,6 +1055,8 @@ function showPlayersList() {
 
   modalContent.innerHTML = html
   modal.classList.add("active")
+
+  updatePlayersStatusList() // Ensure the list is updated when modal opens
 }
 
 function closePlayersModal() {
@@ -1052,6 +1066,8 @@ function closePlayersModal() {
 
 function updatePlayersStatusList() {
   const list = document.getElementById("players-status-list")
+  if (!list) return // Exit if the element doesn't exist
+
   list.innerHTML = ""
 
   gameState.players.forEach((player) => {
@@ -1089,6 +1105,11 @@ function resetGame() {
     witchSaveUsed: false,
     witchKillUsed: false,
   }
+  gameState.rolesConfig = {} // Salvare la configurazione localmente
+  gameState.gameMode = null
+  gameState.roomCode = null
+  gameState.isHost = false
+  gameState.connectedPlayers = []
 }
 
 // Close modal on outside click
@@ -1115,6 +1136,7 @@ async function createRoom() {
 
     const data = await response.json()
     gameState.roomCode = data.roomCode
+    gameState.isHost = true // Set host flag
     showMultiplayerHostScreen()
     connectWebSocket()
   } catch (error) {
@@ -1141,7 +1163,7 @@ function joinRoom() {
   }
 
   gameState.roomCode = roomCode
-  gameState.isHost = false
+  gameState.isHost = false // Not the host
 
   showMultiplayerPlayerScreen()
   connectWebSocket(playerName)
@@ -1152,24 +1174,31 @@ let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 
 function connectWebSocket(playerName = null) {
+  // Construct WebSocket URL based on WORKER_URL
   const wsUrl = `${WORKER_URL.replace("https://", "wss://")}/api/room/${gameState.roomCode}`
 
   console.log("[v0] Connessione a:", wsUrl)
+  console.log("[v0] Nome giocatore:", playerName)
+  console.log("[v0] È host:", gameState.isHost)
 
   ws = new WebSocket(wsUrl)
 
   ws.onopen = () => {
     console.log("[v0] WebSocket connesso")
-    reconnectAttempts = 0
+    reconnectAttempts = 0 // Reset reconnect attempts on successful connection
 
     if (gameState.isHost) {
+      console.log("[v0] Invio create-host")
+      // If host, send a message to establish host role
       ws.send(
         JSON.stringify({
           type: "create-host",
-          playerName: "Host",
+          playerName: "Host", // Host name can be generic or configurable
         }),
       )
     } else if (playerName) {
+      console.log("[v0] Invio join con nome:", playerName)
+      // If player, send join message with player name
       ws.send(
         JSON.stringify({
           type: "join",
@@ -1191,13 +1220,13 @@ function connectWebSocket(playerName = null) {
   ws.onclose = () => {
     console.log("[v0] WebSocket chiuso")
 
-    // Tenta reconnessione
+    // Attempt to reconnect if connection is lost and within limits
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       reconnectAttempts++
       console.log(`[v0] Tentativo riconnessione ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`)
       setTimeout(() => {
-        connectWebSocket(playerName)
-      }, 2000 * reconnectAttempts)
+        connectWebSocket(playerName) // Re-attempt connection
+      }, 2000 * reconnectAttempts) // Exponential backoff
     } else {
       alert("Connessione persa. Ricarica la pagina per riconnetterti.")
     }
@@ -1209,34 +1238,56 @@ function handleWebSocketMessage(data) {
 
   switch (data.type) {
     case "connected":
-      console.log("[v0] Connesso al server")
+      console.log("[v0] Connesso al server, giocatori attuali:", data.players)
+      gameState.connectedPlayers = data.players
+      updateConnectedPlayersList()
+      updateTotalsMultiplayer()
       break
 
     case "player-joined":
-      if (gameState.isHost) {
-        gameState.connectedPlayers = data.players
-        updateConnectedPlayersList()
-        updateTotalsMultiplayer()
-      }
+      console.log("[v0] Giocatore entrato:", data.playerName, "Lista completa:", data.players)
+      gameState.connectedPlayers = data.players
+      updateConnectedPlayersList()
+      updateTotalsMultiplayer()
+
+      const notification = document.createElement("div")
+      notification.style.cssText =
+        "position: fixed; top: 20px; right: 20px; background: var(--color-success); color: white; padding: 1rem 1.5rem; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"
+      notification.textContent = `${data.playerName} si è unito alla stanza`
+      document.body.appendChild(notification)
+      setTimeout(() => notification.remove(), 3000)
       break
 
     case "player-left":
-      if (gameState.isHost) {
-        gameState.connectedPlayers = data.players
-        updateConnectedPlayersList()
-        updateTotalsMultiplayer()
-      }
+      console.log("[v0] Giocatore uscito:", data.playerName)
+      gameState.connectedPlayers = data.players
+      updateConnectedPlayersList()
+      updateTotalsMultiplayer()
       break
 
     case "roles-updated":
+      console.log("[v0] Ruoli aggiornati:", data.rolesConfig)
+      gameState.rolesConfig = data.rolesConfig
+
       // Aggiorna l'interfaccia con la nuova configurazione ruoli
-      Object.keys(data.rolesConfig).forEach((roleKey) => {
+      Object.keys(ROLES).forEach((roleKey) => {
         const element = document.getElementById(`count-mp-${roleKey}`)
         if (element) {
-          element.textContent = data.rolesConfig[roleKey]
+          element.textContent = data.rolesConfig[roleKey] || 0
         }
       })
       updateTotalsMultiplayer()
+
+      updateRolesDisplayForPlayers()
+
+      if (!gameState.isHost) {
+        const notification = document.createElement("div")
+        notification.style.cssText =
+          "position: fixed; top: 20px; right: 20px; background: var(--color-primary); color: white; padding: 1rem 1.5rem; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"
+        notification.textContent = "L'host ha aggiornato i ruoli"
+        document.body.appendChild(notification)
+        setTimeout(() => notification.remove(), 3000)
+      }
       break
 
     case "game-started":
@@ -1428,22 +1479,156 @@ document.addEventListener("DOMContentLoaded", () => {
   showHomeScreen()
 })
 
+// Placeholder functions for multiplayer game flow
 function showNightPhase() {
-  // Placeholder function for showNightPhase
+  console.log("showNightPhase called (multiplayer)")
+  // Implement logic to display night phase in multiplayer
+  updateGameScreen() // Or a dedicated multiplayer update function
 }
 
 function showDayPhase() {
-  // Placeholder function for showDayPhase
+  console.log("showDayPhase called (multiplayer)")
+  // Implement logic to display day phase in multiplayer
+  updateGameScreen() // Or a dedicated multiplayer update function
 }
 
 function showNightResults(deaths) {
-  // Placeholder function for showNightResults
+  console.log("showNightResults called (multiplayer):", deaths)
+  // Implement logic to display night results in multiplayer
+  // This might involve updating the game screen based on received data
+  updateGameScreen()
 }
 
 function showDayResults(eliminated, votes) {
-  // Placeholder function for showDayResults
+  console.log("showDayResults called (multiplayer):", eliminated, votes)
+  // Implement logic to display day results in multiplayer
+  updateGameScreen()
 }
 
 function showGameOver(winner, players) {
-  // Placeholder function for showGameOver
+  console.log("showGameOver called (multiplayer):", winner, players)
+  // Implement logic to display game over screen in multiplayer
+  hideAllScreens()
+  document.getElementById("game-over-screen").classList.add("active") // Assuming you have a game-over screen
+  document.getElementById("winner-message").textContent = `${winner} ha vinto!`
+  // Optionally display player statuses
+}
+
+// New function to update the player list in the player's lobby screen
+function updateLobbyPlayersList() {
+  const lobbyList = document.getElementById("lobby-players-list")
+  if (!lobbyList) return
+
+  lobbyList.innerHTML = ""
+
+  if (gameState.connectedPlayers.length === 0) {
+    lobbyList.innerHTML =
+      '<p style="color: var(--color-text-muted); text-align: center; padding: 1rem;">Nessun giocatore nella stanza</p>'
+    return
+  }
+
+  gameState.connectedPlayers.forEach((player) => {
+    const playerItem = document.createElement("div")
+    playerItem.className = "player-item"
+    playerItem.innerHTML = `
+      <span>${player.name}</span>
+      <span style="color: var(--color-success);">✓</span>
+    `
+    lobbyList.appendChild(playerItem)
+  })
+
+  const countElement = document.getElementById("lobby-players-count")
+  if (countElement) {
+    countElement.textContent = gameState.connectedPlayers.length
+  }
+}
+
+// New function to copy room code
+function copyRoomCode() {
+  const roomCode = gameState.roomCode
+  if (!roomCode) return
+
+  // Try with the modern Clipboard API
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard
+      .writeText(roomCode)
+      .then(() => {
+        showCopyNotification("Codice copiato!")
+      })
+      .catch(() => {
+        fallbackCopyTextToClipboard(roomCode) // Fallback if API fails
+      })
+  } else {
+    fallbackCopyTextToClipboard(roomCode) // Fallback if API is not supported
+  }
+}
+
+// Fallback function for copying text if Clipboard API is not available or fails
+function fallbackCopyTextToClipboard(text) {
+  const textArea = document.createElement("textarea")
+  textArea.value = text
+  // Make textarea invisible and out of the way
+  textArea.style.position = "fixed"
+  textArea.style.top = "0"
+  textArea.style.left = "0"
+  textArea.style.opacity = "0"
+  document.body.appendChild(textArea)
+  textArea.focus()
+  textArea.select()
+
+  try {
+    document.execCommand("copy")
+    showCopyNotification("Codice copiato!")
+  } catch (err) {
+    showCopyNotification("Errore nella copia")
+  }
+
+  document.body.removeChild(textArea)
+}
+
+// Function to display a temporary notification for copy action
+function showCopyNotification(message) {
+  const notification = document.createElement("div")
+  notification.style.cssText =
+    "position: fixed; top: 20px; right: 20px; background: var(--color-success); color: white; padding: 1rem 1.5rem; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"
+  notification.textContent = message
+  document.body.appendChild(notification)
+  setTimeout(() => notification.remove(), 2000) // Remove after 2 seconds
+}
+
+function updateRolesDisplayForPlayers() {
+  const rolesDisplay = document.getElementById("roles-display-player")
+  if (!rolesDisplay) return
+
+  rolesDisplay.innerHTML = ""
+
+  let totalRoles = 0
+
+  Object.keys(ROLES).forEach((roleKey) => {
+    const count = gameState.rolesConfig[roleKey] || 0
+    if (count > 0) {
+      totalRoles += count
+      const role = ROLES[roleKey]
+      const roleItem = document.createElement("div")
+      roleItem.className = "role-display-item"
+      roleItem.innerHTML = `
+        <span>
+          <span style="font-size: 1.2rem;">${role.icon}</span>
+          <span>${role.name}</span>
+        </span>
+        <span class="role-count">×${count}</span>
+      `
+      rolesDisplay.appendChild(roleItem)
+    }
+  })
+
+  const totalElement = document.getElementById("total-roles-player")
+  if (totalElement) {
+    totalElement.textContent = totalRoles
+  }
+
+  if (totalRoles === 0) {
+    rolesDisplay.innerHTML =
+      '<p style="color: var(--color-text-muted); text-align: center; padding: 1rem;">L\'host non ha ancora configurato i ruoli</p>'
+  }
 }
