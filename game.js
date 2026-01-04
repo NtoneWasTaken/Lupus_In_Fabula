@@ -1418,15 +1418,20 @@ function handleWebSocketMessage(data) {
     case "game-started":
       console.log("[v0] Gioco iniziato, ruolo ricevuto:", data.yourRole)
 
-      // Salva i dati del giocatore
       gameState.players = data.players
       gameState.playerName = data.playerName || gameState.playerName
       gameState.currentPhase = data.phase || "night"
       gameState.turnNumber = data.turnNumber || 1
 
+      // Trova il giocatore corrente e salva il suo ruolo
       const myPlayer = gameState.players.find((p) => p.name === gameState.playerName)
-      if (myPlayer) {
-        const role = ROLES[myPlayer.role]
+      if (myPlayer && data.yourRole) {
+        myPlayer.role = data.yourRole
+      }
+
+      // Mostra il ruolo assegnato
+      const role = ROLES[data.yourRole]
+      if (role) {
         alert(`Il tuo ruolo è: ${role.icon} ${role.name}\n\n${role.description}`)
       }
 
@@ -1894,7 +1899,7 @@ function performPlayerWolvesAction() {
 }
 
 function performPlayerSeerAction() {
-  showPlayerSelectionModal("Scegli di chi scoprire il ruolo", (selectedPlayer) => {
+  showPlayerSelectionModal("Scegli di cui scoprire il ruolo", (selectedPlayer) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
