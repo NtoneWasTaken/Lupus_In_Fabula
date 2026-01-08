@@ -62,6 +62,7 @@ export class GameRoom {
     this.sessions = []
     this.gameState = {
       host: null,
+      narrator: null, // Aggiunto campo per il narratore
       players: [],
       rolesConfig: {},
       gameStarted: false,
@@ -244,6 +245,9 @@ export class GameRoom {
           player.role = roles[index]
         })
 
+        const randomIndex = Math.floor(Math.random() * this.gameState.players.length)
+        this.gameState.narrator = this.gameState.players[randomIndex].name
+
         this.gameState.gameStarted = true
         this.gameState.currentPhase = "night"
         this.gameState.currentNight = 1
@@ -256,6 +260,7 @@ export class GameRoom {
                 type: "game-started",
                 yourRole: player.role,
                 playerName: player.name,
+                isNarrator: player.name === this.gameState.narrator, // Indica se è il narratore
                 phase: "night",
                 turnNumber: 1,
                 players: this.gameState.players.map((p) => ({
@@ -274,16 +279,24 @@ export class GameRoom {
         if (!player) return
 
         const action = data.action
+        const target = data.target
 
-        // Memorizza l'azione
         if (!this.gameState.nightActions[this.gameState.currentNight]) {
           this.gameState.nightActions[this.gameState.currentNight] = {}
         }
 
-        this.gameState.nightActions[this.gameState.currentNight][session.playerName] = action
+        if (action === "wolf-kill") {
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "wolves-target",
+            target: target,
+          }
+        } else if (action === "seer-check") {
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "seer-target",
+            target: target,
+          }
 
-        if (action.type === "seer-target") {
-          const targetPlayer = this.gameState.players.find((p) => p.name === action.target)
+          const targetPlayer = this.gameState.players.find((p) => p.name === target)
           if (targetPlayer) {
             session.webSocket.send(
               JSON.stringify({
@@ -295,18 +308,45 @@ export class GameRoom {
               }),
             )
           }
+        } else if (action === "guard-protect") {
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "guard-target",
+            target: target,
+          }
+        } else if (action === "witch-kill") {
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "witch-kill",
+            target: target,
+          }
+        } else if (action === "witch-skip") {
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "witch-skip",
+          }
+        } else if (action === "cupid-lovers") {
+          const lovers = target.split(",")
+          this.gameState.nightActions[this.gameState.currentNight][session.playerName] = {
+            type: "cupid-action",
+            lovers: lovers,
+          }
+
+          const [lover1, lover2] = lovers
+          const p1 = this.gameState.players.find((p) => p.name === lover1)
+          const p2 = this.gameState.players.find((p) => p.name === lover2)
+          if (p1 && p2) {
+            p1.lover = lover2
+            p2.lover = lover1
+          }
         }
 
-        this.broadcast(
-          {
-            type: "action-received",
-            playerName: session.playerName,
-          },
-          session,
+        session.webSocket.send(
+          JSON.stringify({
+            type: "action-confirmed",
+            action: action,
+          }),
         )
         break
 
-      case "day-vote":
+      case "vote":
         if (!this.gameState.nightActions[this.gameState.currentNight]) {
           this.gameState.nightActions[this.gameState.currentNight] = {}
         }
@@ -316,17 +356,23 @@ export class GameRoom {
           target: data.target,
         }
 
-        this.broadcast(
-          {
-            type: "vote-received",
-            playerName: session.playerName,
-          },
-          session,
+        session.webSocket.send(
+          JSON.stringify({
+            type: "vote-confirmed",
+          }),
         )
         break
 
       case "next-phase":
-        if (!session.isHost) return
+        if (session.playerName !== this.gameState.narrator) {
+          session.webSocket.send(
+            JSON.stringify({
+              type: "error",
+              message: "Solo il narratore può avanzare le fasi",
+            }),
+          )
+          return
+        }
 
         if (this.gameState.currentPhase === "night") {
           this.processNightActions()
@@ -417,7 +463,6 @@ export class GameRoom {
           const lover = this.gameState.players.find((p) => p.name === poisonedPlayer.lover)
           if (lover && lover.alive) {
             lover.alive = false
-            deaths.push(lover.name)
           }
         }
       }
@@ -489,12 +534,16 @@ export class GameRoom {
         winner: "Villaggio",
         players: this.gameState.players,
       })
+      this.gameState.gameStarted = false
+      this.gameState.narrator = null
     } else if (aliveWolves.length >= aliveVillagers.length) {
       this.broadcast({
         type: "game-over",
         winner: "Lupi",
         players: this.gameState.players,
       })
+      this.gameState.gameStarted = false
+      this.gameState.narrator = null
     }
   }
 
