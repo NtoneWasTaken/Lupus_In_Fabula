@@ -962,3 +962,72 @@ body {
   padding: 1rem 0;
   line-height: 1.8;
 }
+
+/* Aggiunto stili per i pulsanti di selezione giocatori nelle azioni notturne */
+.player-btn {
+  background: transparent;
+  border: 2px solid var(--color-accent);
+  color: var(--color-text);
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-family: "Georgia", serif;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-align: center;
+}
+
+.player-btn:hover {
+  background: var(--color-accent);
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(139, 69, 19, 0.4);
+}
+
+.player-btn:active {
+  transform: translateX(2px);
+}
+
+/* Stili per i pulsanti di azione */
+.action-btn {
+  background: var(--color-accent);
+  border: 2px solid var(--color-accent);
+  color: var(--color-text);
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-family: "Georgia", serif;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.action-btn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.5);
+}
+
+/* Stili per la selezione di Cupido */
+#cupid-selection-area {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+}
+
+#cupid-selection-area p {
+  margin-bottom: 0.5rem;
+  color: var(--color-accent-light);
+}
+
+/* Responsive per i nuovi pulsanti */
+@media (max-width: 768px) {
+  .player-btn,
+  .action-btn {
+    padding: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+  }
+}

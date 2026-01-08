@@ -1075,16 +1075,18 @@ function skipDayVoting() {
 function voteToEliminate(playerName) {
   const player = gameState.players.find((p) => p.name === playerName)
 
-  if (!player) return // Sicurezza
+  if (!player && playerName !== null) return // Sicurezza
 
   const confirm = window.confirm(`Confermi di voler eliminare ${playerName}? Questa azione non può essere annullata.`)
 
-  if (!confirm) return // Se l'utente annulla
+  if (!confirm && playerName !== null) return // Se l'utente annulla
 
-  player.alive = false // Il giocatore viene segnato come morto
+  if (playerName) {
+    player.alive = false // Il giocatore viene segnato come morto
+  }
 
   // Gestione del Cacciatore: se il giocatore eliminato è un cacciatore, può portare qualcuno con sé
-  if (player.role === "cacciatore") {
+  if (playerName && player.role === "cacciatore") {
     const takeDown = window.confirm(`${playerName} era il Cacciatore! Vuole portare qualcuno con sé?`)
 
     if (takeDown) {
@@ -1113,7 +1115,7 @@ function voteToEliminate(playerName) {
   }
 
   // Gestione degli innamorati: se il giocatore eliminato ha un innamorato vivo, anche lui muore
-  if (player.lover) {
+  if (playerName && player.lover) {
     const lover = gameState.players.find((p) => p.name === player.lover)
     if (lover && lover.alive) {
       lover.alive = false
@@ -1837,12 +1839,12 @@ function showNightPhase() {
 
   // Trova il giocatore corrente basato sul nome memorizzato
   const myPlayer = gameState.players.find((p) => p.name === gameState.playerName)
-  if (!myPlayer) {
+  if (!myPlayer && !gameState.isNarrator) {
     console.error("Giocatore corrente non trovato per la fase notturna!")
     return
   }
 
-  const myRole = myPlayer.role ? ROLES[myPlayer.role] : null
+  const myRole = myPlayer && myPlayer.role ? ROLES[myPlayer.role] : null
 
   let html = `
     <div class="phase-content">
@@ -1852,7 +1854,15 @@ function showNightPhase() {
       </div>
   `
 
-  if (!myPlayer.alive) {
+  if (gameState.isNarrator) {
+    html += `
+      <div class="your-action-card">
+        <h4>📖 Sei il Narratore</h4>
+        <p>Gestisci le fasi di gioco e assicurati che tutti i giocatori eseguano le loro azioni.</p>
+        <p><strong>Giocatori in vita:</strong> ${gameState.players.filter((p) => p.alive).length}</p>
+      </div>
+    `
+  } else if (!myPlayer || !myPlayer.alive) {
     html += `
       <div class="your-action-card">
         <p>Sei morto. Riposa in pace e attendi la fine della partita.</p>
@@ -1863,23 +1873,19 @@ function showNightPhase() {
   } else {
     html += `
       <div class="your-action-card">
-        <p>Dormi pacificamente. Non hai azioni da compiere durante la notte.</p>
-      </div>
-    `
-  }
-
-  if (gameState.isNarrator) {
-    html += `
-      <div style="margin-top: 2rem; padding-top: 2rem; border-top: 2px solid var(--color-border);">
-        <h4>📋 Pannello Narratore</h4>
-        <p style="color: var(--color-text-muted); font-size: 0.9rem;">Come narratore, puoi vedere le azioni di tutti i giocatori.</p>
-        <!-- Aggiungere qui logica per mostrare le azioni degli altri giocatori se necessario -->
+        <p>Non hai azioni durante la notte. Attendi che il narratore avanzi alla fase diurna.</p>
       </div>
     `
   }
 
   html += `</div>`
   gameContent.innerHTML = html
+
+  const nextPhaseBtn = document.getElementById("next-phase-btn")
+  if (nextPhaseBtn) {
+    nextPhaseBtn.style.display = gameState.isNarrator ? "block" : "none"
+    nextPhaseBtn.textContent = "Passa al Giorno"
+  }
 }
 
 function generateMyNightActionHTML(player, role) {
@@ -1887,166 +1893,129 @@ function generateMyNightActionHTML(player, role) {
 
   let html = `
     <div class="your-action-card">
-      <div class="action-header">
-        <span class="action-icon">${role.icon}</span>
-        <h4>La tua azione: ${role.name}</h4>
-      </div>
+      <h4>${role.icon} ${role.name}</h4>
+      <p>${role.description}</p> <!-- Utilizza la descrizione del ruolo per le istruzioni -->
   `
 
-  switch (player.role) {
-    case "lupo":
-      html += `
-        <p>Scegli una vittima da eliminare stanotte.</p>
-        <div class="player-selection-grid">
-          ${alivePlayers
-            .map(
-              (p) => `
-            <button class="player-select-btn" onclick="submitNightAction('wolf-kill', '${p.name}')">
-              ${p.name}
-            </button>
-          `,
-            )
-            .join("")}
-        </div>
+  // Controlla se il ruolo ha un'azione notturna e se il giocatore è vivo
+  if (role.nightAction && player.alive) {
+    if (role.key === "cupido" && gameState.turnNumber > 1) {
+      html += `<p>Cupido agisce solo al primo turno.</p>`
+    } else if (role.key === "cupido") {
+      html += `<p>Scegli due giocatori da far innamorare:</p>
+      <div id="cupid-selection-area"></div>
+      <div class="player-selection">
+      ${alivePlayers
+        .map(
+          (p) => `
+        <button class="player-btn" onclick="selectForCupid('${p.name}')">${p.name}</button>
+      `,
+        )
+        .join("")}
+      </div>
       `
-      break
+    } else if (alivePlayers.length > 0) {
+      html += `<div class="player-selection">`
+      alivePlayers.forEach((p) => {
+        // Determina il testo del pulsante in base al ruolo
+        let buttonText = p.name
+        if (role.key === "strega") {
+          buttonText = `Salva ${p.name}` // Default: salva
+        } else if (role.key === "lupo") {
+          buttonText = `Attacca ${p.name}`
+        } else if (role.key === "veggente") {
+          buttonText = `Indovina ${p.name}`
+        } else if (role.key === "guardia") {
+          buttonText = `Proteggi ${p.name}`
+        }
 
-    case "veggente":
-      html += `
-        <p>Scegli un giocatore di cui vuoi scoprire il ruolo.</p>
-        <div class="player-selection-grid">
-          ${alivePlayers
-            .map(
-              (p) => `
-            <button class="player-select-btn" onclick="submitNightAction('seer-check', '${p.name}')">
-              ${p.name}
-            </button>
-          `,
-            )
-            .join("")}
-        </div>
-      `
-      break
-
-    case "guardia":
-      html += `
-        <p>Scegli un giocatore da proteggere dagli attacchi dei lupi.</p>
-        <div class="player-selection-grid">
-          ${alivePlayers
-            .map(
-              (p) => `
-            <button class="player-select-btn" onclick="submitNightAction('guard-protect', '${p.name}')">
-              ${p.name}
-            </button>
-          `,
-            )
-            .join("")}
-        </div>
-      `
-      break
-
-    case "strega":
-      html += `
-        <p>Puoi usare una delle tue pozioni (se ancora disponibili).</p>
-        <div class="player-selection-grid">
-          ${alivePlayers
-            .map(
-              (p) => `
-            <button class="player-select-btn" onclick="submitNightAction('witch-kill', '${p.name}')">
-              Uccidi ${p.name}
-            </button>
-          `,
-            )
-            .join("")}
-          <button class="player-select-btn" onclick="submitNightAction('witch-skip', null)">
-            Non usare pozioni
-          </button>
-        </div>
-      `
-      break
-
-    case "cupido":
-      if (gameState.turnNumber === 1) {
-        html += `
-          <p>Scegli due giocatori che diventeranno innamorati.</p>
-          <div id="cupid-selection">
-            <p>Seleziona il primo innamorato:</p>
-            <div class="player-selection-grid">
-              ${gameState.players
-                .filter((p) => p.alive)
-                .map(
-                  (p) => `
-                <button class="player-select-btn" onclick="selectCupidLover('${p.name}', 1)">
-                  ${p.name}
-                </button>
-              `,
-                )
-                .join("")}
-            </div>
-          </div>
-        `
-      } else {
-        html += `<p>Hai già usato il tuo potere. Riposa.</p>`
+        html += `<button class="player-btn" onclick="performNightAction('${role.key}', '${p.name}')">${buttonText}</button>`
+      })
+      // Aggiungi opzione "Salta" per ruoli che possono scegliere di non agire
+      if (role.key === "strega" || role.key === "veggente" || role.key === "guardia") {
+        html += `<button class="player-btn" onclick="performNightAction('${role.key}', null)">Salta</button>`
       }
-      break
-
-    default:
-      html += `<p>Dormi pacificamente.</p>`
+      html += `</div>`
+    } else {
+      html += `<p>Non ci sono altri giocatori da scegliere.</p>`
+    }
+  } else if (!player.alive) {
+    html += `<p>Sei morto e non puoi agire.</p>`
+  } else {
+    html += `<p>Non hai azioni da compiere durante la notte.</p>`
   }
 
   html += `</div>`
   return html
 }
 
-function submitNightAction(action, target) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    alert("Connessione persa. Riprova.")
+let cupidSelections = []
+function selectForCupid(playerName) {
+  const selectionArea = document.getElementById("cupid-selection-area")
+  if (!selectionArea) return
+
+  if (cupidSelections.includes(playerName)) {
+    // Rimuovi se già selezionato
+    cupidSelections = cupidSelections.filter((p) => p !== playerName)
+  } else if (cupidSelections.length < 2) {
+    // Aggiungi se meno di 2 selezionati
+    cupidSelections.push(playerName)
+  }
+
+  if (cupidSelections.length === 2) {
+    selectionArea.innerHTML = `
+      <p>Selezionati: ${cupidSelections.join(" e ")}</p>
+      <button class="action-btn" onclick="performCupidAction()">Conferma Amore</button>
+    `
+  } else {
+    selectionArea.innerHTML = `<p>Selezionati: ${cupidSelections.join(", ")} (${cupidSelections.length}/2)</p>`
+  }
+}
+
+function performCupidAction() {
+  if (cupidSelections.length === 2) {
+    sendNightAction({
+      action: "cupid-link",
+      targets: cupidSelections,
+    })
+    cupidSelections = [] // Resetta le selezioni
+    const selectionArea = document.getElementById("cupid-selection-area")
+    if (selectionArea) {
+      selectionArea.innerHTML = `<p>✅ Amore creato! Attendi il narratore.</p>`
+    }
+  } else {
+    alert("Devi selezionare esattamente due giocatori!")
+  }
+}
+
+function performNightAction(roleKey, targetName) {
+  // Mappa le chiavi dei ruoli alle azioni del server
+  const actionMap = {
+    lupo: "wolf-kill",
+    veggente: "seer-check",
+    guardia: "guard-protect",
+    strega: "witch-use", // Azione generica per la strega, il server deciderà cosa fare
+    cupido: "cupid-link", // Già gestito sopra, ma per completezza
+  }
+
+  const actionType = actionMap[roleKey]
+
+  if (!actionType) {
+    console.error("Azione non definita per il ruolo:", roleKey)
     return
   }
 
-  ws.send(
-    JSON.stringify({
-      type: "night-action",
-      action: action,
-      target: target,
-    }),
-  )
-
-  // Mostra feedback all'utente
-  const gameContent = document.getElementById("game-content")
-  gameContent.innerHTML = `
-    <div class="phase-content">
-      <h3>✅ Azione Completata</h3>
-      <p>La tua azione è stata registrata. Attendi che il narratore concluda la notte.</p>
-    </div>
-  `
-}
-
-let cupidFirstLover = null
-
-function selectCupidLover(playerName, step) {
-  if (step === 1) {
-    cupidFirstLover = playerName
-    const cupidSelection = document.getElementById("cupid-selection")
-    cupidSelection.innerHTML = `
-      <p>Primo innamorato: <strong>${cupidFirstLover}</strong></p>
-      <p>Seleziona il secondo innamorato:</p>
-      <div class="player-selection-grid">
-        ${gameState.players
-          .filter((p) => p.alive && p.name !== cupidFirstLover)
-          .map(
-            (p) => `
-          <button class="player-select-btn" onclick="selectCupidLover('${p.name}', 2)">
-            ${p.name}
-          </button>
-        `,
-          )
-          .join("")}
-      </div>
-    `
-  } else if (step === 2) {
-    submitNightAction("cupid-lovers", `${cupidFirstLover},${playerName}`)
-    cupidFirstLover = null
+  // Invia solo se c'è un bersaglio o se l'azione è esplicita (come skip o salvo)
+  if (targetName !== null || actionType === "witch-use" || actionType === "skip") {
+    // Aggiungi skip se serve
+    sendNightAction({
+      action: actionType,
+      target: targetName, // Può essere null se l'azione non richiede un bersaglio diretto
+    })
+    alert(`Azione inviata!`)
+    // Potrebbe essere utile aggiornare l'UI qui per mostrare che l'azione è stata inviata
+  } else {
+    alert("Seleziona un bersaglio o scegli di saltare.")
   }
 }
 
@@ -2079,113 +2048,69 @@ function showDayPhase() {
       </div>
   `
 
-  if (myPlayer && myPlayer.alive) {
-    const alivePlayers = gameState.players.filter((p) => p.alive)
+  if (gameState.isNarrator) {
     html += `
       <div class="your-action-card">
-        <h4>🗳️ Vota chi eliminare</h4>
-        <div class="player-selection-grid">
-          ${alivePlayers
-            .map(
-              (p) => `
-            <button class="player-select-btn" onclick="submitVote('${p.name}')">
-              ${p.name}
-            </button>
-          `,
-            )
-            .join("")}
-          <button class="player-select-btn" onclick="submitVote('skip')">
-            Salta votazione
-          </button>
+        <h4>📖 Narratore</h4>
+        <p>I giocatori devono votare chi eliminare. Quando tutti hanno votato, passa alla fase notturna.</p>
+      </div>
+    `
+  } else if (myPlayer && myPlayer.alive) {
+    // Filtra i giocatori vivi, escludendo se stesso per il voto (opzionale, ma comune)
+    const alivePlayers = gameState.players.filter((p) => p.alive && p.name !== myPlayer.name)
+
+    html += `
+      <div class="your-action-card">
+        <h4>Vota chi eliminare</h4>
+        <p>Scegli un giocatore da eliminare o salta il turno:</p>
+        <div class="player-selection">
+          <button class="player-btn" onclick="voteToEliminate(null)">⏭️ Salta (nessuno)</button>
+    `
+
+    alivePlayers.forEach((p) => {
+      html += `<button class="player-btn" onclick="voteToEliminate('${p.name}')">${p.name}</button>`
+    })
+
+    html += `
         </div>
       </div>
     `
   } else {
     html += `
       <div class="your-action-card">
-        <p>Sei morto. Non puoi votare.</p>
+        <p>Sei morto. Osserva in silenzio.</p>
       </div>
     `
   }
 
   html += `</div>`
   gameContent.innerHTML = html
-}
 
-function submitVote(target) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    alert("Connessione persa. Riprova.")
-    return
+  const nextPhaseBtn = document.getElementById("next-phase-btn")
+  if (nextPhaseBtn) {
+    nextPhaseBtn.style.display = gameState.isNarrator ? "block" : "none"
+    nextPhaseBtn.textContent = "Passa alla Notte"
   }
-
-  ws.send(
-    JSON.stringify({
-      type: "vote",
-      target: target,
-    }),
-  )
-
-  const gameContent = document.getElementById("game-content")
-  gameContent.innerHTML = `
-    <div class="phase-content">
-      <h3>✅ Voto Registrato</h3>
-      <p>Il tuo voto è stato registrato. Attendi che il narratore concluda il giorno.</p>
-    </div>
-  `
 }
 
-// Placeholder functions for the reported lint errors
+function voteToEliminate(targetName) {
+  sendDayVote(targetName)
+  alert(targetName ? `Hai votato per eliminare ${targetName}` : "Hai scelto di non eliminare nessuno")
+}
+
+// Dummy functions for undeclared variables to fix linting errors.
+// These should be implemented properly as part of the game logic.
 function showNightResults(deaths) {
-  console.log("showNightResults called with deaths:", deaths)
-  // Implementation needed based on game logic
+  console.log("showNightResults called with:", deaths)
+  // Implement the actual logic for displaying night results
 }
 
 function showDayResults(eliminated, votes) {
-  console.log("showDayResults called with eliminated:", eliminated, "and votes:", votes)
-  // Implementation needed based on game logic
+  console.log("showDayResults called with:", eliminated, votes)
+  // Implement the actual logic for displaying day results
 }
 
 function showGameOver(winner, players) {
-  console.log("showGameOver called with winner:", winner, "and players:", players)
-  // Implementation needed based on game logic
-  alert(`Gioco Terminato! Il vincitore è ${winner}.`)
-  showHomeScreen()
-  resetGame()
+  console.log("showGameOver called with:", winner, players)
+  // Implement the actual logic for displaying game over screen
 }
-
-// Event Listeners
-document.addEventListener("DOMContentLoaded", () => {
-  // Home screen buttons
-  document.getElementById("local-mode-btn").addEventListener("click", showLocalModeScreen)
-  document.getElementById("multiplayer-mode-btn").addEventListener("click", showMultiplayerScreen)
-  document.getElementById("rules-btn").addEventListener("click", showRulesScreen)
-
-  // Back buttons
-  document.querySelectorAll(".back-btn").forEach((btn) => {
-    btn.addEventListener("click", backToHome)
-  })
-
-  // Local mode setup
-  document.getElementById("start-game-btn").addEventListener("click", startLocalGame)
-
-  // Multiplayer buttons
-  document.getElementById("create-room-btn").addEventListener("click", createRoom)
-  document.getElementById("join-room-btn").addEventListener("click", joinRoom)
-
-  // Preset buttons
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      const preset = e.target.dataset.preset
-      applyPreset(Number.parseInt(preset))
-    })
-  })
-
-  // Game controls
-  const nextPhaseBtn = document.getElementById("next-phase-btn")
-  if (nextPhaseBtn) {
-    nextPhaseBtn.addEventListener("click", nextPhase)
-  }
-
-  // Initialize
-  showHomeScreen()
-})
